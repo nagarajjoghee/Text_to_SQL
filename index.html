@@ -24,6 +24,11 @@
         <div class="hero__cta">
             <button id="tryExampleBtn" class="btn btn--primary">Try a sample prompt</button>
             <button id="clearAllBtn" class="btn btn--ghost">Reset workspace</button>
+            <label class="mode-toggle" for="llmToggle">
+                <input type="checkbox" id="llmToggle">
+                <span class="mode-toggle__slider"></span>
+                <span class="mode-toggle__label">Use GPT-4.1</span>
+            </label>
         </div>
     </header>
 
@@ -53,16 +58,26 @@
             <div class="panel__actions">
                 <button id="copySqlBtn" class="btn btn--secondary" disabled>Copy SQL</button>
                 <button id="downloadSqlBtn" class="btn btn--ghost" disabled>Download .sql</button>
+                <button id="runSqlBtn" class="btn btn--primary" disabled>Run SQL</button>
             </div>
             <section class="explanation" id="explanationSection" hidden>
                 <h3>How we mapped your prompt</h3>
                 <ul id="explanationList"></ul>
             </section>
+            <section class="results" id="resultsSection" hidden>
+                <header class="results__header">
+                    <h3>Query Results</h3>
+                    <span id="resultsMeta" class="results__meta"></span>
+                </header>
+                <div class="results__body" id="resultsContainer">
+                    <table class="results__table" id="resultsTable"></table>
+                </div>
+            </section>
         </section>
     </main>
 
     <footer class="footer">
-        <p><strong>Note:</strong> This playground uses a simple rule-based converter for demo purposes. Swap the logic in <code>app.js</code> with your Text-to-SQL API to go live.</p>
+        <p><strong>Note:</strong> Enable GPT-4.1 mode to route prompts through the local proxy server (<code>server/server.js</code>). Provide your <code>OPENAI_API_KEY</code> before going live.</p>
     </footer>
 </body>
 </html>
