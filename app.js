@@ -20,7 +20,9 @@ const EXAMPLE_PROMPTS = [
     'Alter the products table to add a column for last_restocked date.',
     'Drop the sessions table if it exists.',
     'Create a view that shows customers with their total orders.',
-    'List customers with their latest order date using a join.'
+    'List customers with their latest order date using a join.',
+    'Find customers whose total_spent is higher than the average using a nested query.',
+    'Write a PL/SQL block that logs high-value orders over 1000.'
 ];
 
 const MOCK_TABLES = {
@@ -89,7 +91,35 @@ DROP TABLE IF EXISTS ${table};`.trim(),
     createView: ({ viewName, selectSql }) => `
 CREATE OR REPLACE VIEW ${viewName} AS
 ${selectSql}
-;`.trim()
+;`.trim(),
+    nestedSelect: ({ table, columns, comparisonColumn, aggregator }) => `
+SELECT
+    ${columns.join(',\n    ')}
+FROM
+    ${table}
+WHERE
+    ${comparisonColumn} > (
+        SELECT
+            ${aggregator}(${comparisonColumn})
+        FROM
+            ${table}
+    );`.trim(),
+    plsqlBlock: ({ table, numericColumn, threshold }) => `
+DECLARE
+    v_count NUMBER;
+BEGIN
+    SELECT
+        COUNT(*)
+    INTO
+        v_count
+    FROM
+        ${table}
+    WHERE
+        ${numericColumn} > ${threshold};
+
+    DBMS_OUTPUT.PUT_LINE('Found ' || v_count || ' records exceeding threshold.');
+END;
+/`.trim()
 };
 
 function normalizeText(text) {
@@ -98,6 +128,14 @@ function normalizeText(text) {
 
 function detectIntent(prompt) {
     const normalized = normalizeText(prompt);
+
+    if (/pl\/?sql|procedure|function|anonymous\s+block/i.test(normalized)) {
+        return 'plsql';
+    }
+
+    if (/nested\s+query|subquery|exists\s*\(|in\s*\(\s*select/i.test(normalized)) {
+        return 'nested-select';
+    }
 
     if (/drop\s+table/i.test(normalized)) {
         return 'drop-table';
@@ -298,6 +336,14 @@ function selectColumns(prompt, table, aggregations) {
     return candidates.slice(0, 4);
 }
 
+function pickNumericColumn(columns) {
+    return (
+        columns.find((column) => /amount|total|salary|price|count|quantity|duration|score/i.test(column)) ??
+        columns.find((column) => /id$/i.test(column)) ??
+        columns[0]
+    );
+}
+
 function buildInsertValues(columns) {
     return columns.map((column, index) => {
         if (/date/i.test(column)) return `CURRENT_DATE${index ? ` + INTERVAL '${index} day'` : ''}`;
@@ -442,6 +488,14 @@ function buildExplanation({ intent, tables, where, groupBy, aggregations, limit,
         items.push('Wrapped a SELECT statement inside CREATE VIEW.');
     }
 
+    if (intent === 'nested-select') {
+        items.push('Added correlated subquery comparing against an aggregate of the same table.');
+    }
+
+    if (intent === 'plsql') {
+        items.push('Generated anonymous PL/SQL block template with SELECT INTO.');
+    }
+
     return items;
 }
 
@@ -497,6 +551,37 @@ function convertPromptToSql(prompt) {
     if (intent === 'drop-table') {
         return {
             sql: SQL_TEMPLATES.dropTable({ table: primaryTable }),
+            explanation: buildExplanation({ intent, tables })
+        };
+    }
+
+    if (intent === 'nested-select') {
+        const columns = selectColumns(prompt, primaryTable, []);
+        const comparisonColumn = pickNumericColumn(detectColumns(primaryTable));
+        const aggregator = /min/i.test(prompt) ? 'MIN' : /max/i.test(prompt) ? 'MAX' : 'AVG';
+
+        return {
+            sql: SQL_TEMPLATES.nestedSelect({
+                table: primaryTable,
+                columns,
+                comparisonColumn,
+                aggregator
+            }),
+            explanation: buildExplanation({
+                intent,
+                tables,
+                where: `${comparisonColumn} > ${aggregator}(subquery)`
+            })
+        };
+    }
+
+    if (intent === 'plsql') {
+        const numericColumn = pickNumericColumn(detectColumns(primaryTable));
+        const thresholdMatch = prompt.match(/over\s+(\d+)|greater than\s+(\d+)|above\s+(\d+)/i);
+        const threshold = thresholdMatch ? thresholdMatch.slice(1).find(Boolean) : '100';
+
+        return {
+            sql: SQL_TEMPLATES.plsqlBlock({ table: primaryTable, numericColumn, threshold }),
             explanation: buildExplanation({ intent, tables })
         };
     }
